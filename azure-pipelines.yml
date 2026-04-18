@@ -1,0 +1,50 @@
+# Azure Pipelines — declarative CI (syntax compatible with Azure DevOps)
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+
+pr:
+  branches:
+    include:
+      - main
+      - develop
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  PYTHON_VERSION: "3.11"
+
+steps:
+  - checkout: self
+    displayName: Checkout repository
+
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: "$(PYTHON_VERSION)"
+    displayName: Use Python $(PYTHON_VERSION)
+
+  - script: |
+      python -m pip install --upgrade pip
+      pip install \
+        "pydantic>=2,<3" \
+        pydantic-settings \
+        "SQLAlchemy>=2,<3" \
+        psycopg2-binary \
+        polars \
+        tenacity \
+        pybreaker \
+        structlog \
+        psutil \
+        pytest \
+        pytest-mock
+    displayName: Install test dependencies
+
+  - script: |
+      export POSTGRES_USER=test
+      export POSTGRES_PASSWORD=test
+      export POSTGRES_DB=test
+      pytest etl_tests/
+    displayName: Run pytest

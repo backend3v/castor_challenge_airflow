@@ -11,10 +11,13 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
     PYTHONPATH: /opt/airflow
+    # ETL pipeline: PgBouncer inside Docker network (host port 6432 is for the host only)
+    ETL_DB_HOST: pgbouncer
+    ETL_DB_PORT: "5432"
   volumes:
-    - ./dags:/opt/airflow/dags
+    - ./etl_dags:/opt/airflow/dags
     - ./pipeline:/opt/airflow/pipeline
-    - ./tests:/opt/airflow/tests
+    - ./etl_tests:/opt/airflow/tests
     - /home/ximi/proyectos/volumes/castor_challenge/airflow:/opt/airflow/logs
   depends_on:
     postgres:
