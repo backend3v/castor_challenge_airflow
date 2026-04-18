@@ -9,7 +9,9 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import text
+from sqlalchemy import DateTime, Integer, MetaData, Numeric, String, Table, func, text
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 
 from pipeline.config import Settings, get_settings
@@ -22,56 +24,57 @@ from pipeline.resilience.retry import with_db_retry
 
 log = get_logger(__name__)
 
-_UPSERT_SQL = text(
-    """
-    INSERT INTO financial_records (
-        transaction_id,
-        account_id,
-        category_id,
-        amount,
-        currency,
-        transaction_type,
-        status,
-        description,
-        created_at,
-        updated_at,
-        source_updated_at
-    ) VALUES (
-        :transaction_id,
-        :account_id,
-        :category_id,
-        :amount,
-        :currency,
-        :transaction_type,
-        :status,
-        :description,
-        :created_at,
-        :updated_at,
-        :source_updated_at
-    )
-    ON CONFLICT (transaction_id) DO UPDATE SET
-        account_id = EXCLUDED.account_id,
-        category_id = EXCLUDED.category_id,
-        amount = EXCLUDED.amount,
-        currency = EXCLUDED.currency,
-        transaction_type = EXCLUDED.transaction_type,
-        status = EXCLUDED.status,
-        description = EXCLUDED.description,
-        created_at = EXCLUDED.created_at,
-        updated_at = EXCLUDED.updated_at,
-        source_updated_at = EXCLUDED.source_updated_at,
-        loaded_at = NOW()
-    """
+# SQLAlchemy Core table — must match ``docker/sql/01_schema.sql`` (financial_records)
+_METADATA = MetaData()
+FINANCIAL_RECORDS = Table(
+    "financial_records",
+    _METADATA,
+    Column("transaction_id", PG_UUID(as_uuid=True), primary_key=True, nullable=False),
+    Column("account_id", PG_UUID(as_uuid=True), nullable=False),
+    Column("category_id", Integer(), nullable=False),
+    Column("amount", Numeric(18, 2), nullable=False),
+    Column("currency", String(3), nullable=False),
+    Column("transaction_type", String(10), nullable=False),
+    Column("status", String(10), nullable=False),
+    Column("description", String(255)),
+    Column("created_at", DateTime(timezone=False), nullable=False),
+    Column("updated_at", DateTime(timezone=False), nullable=False),
+    Column("source_updated_at", DateTime(timezone=False), nullable=False),
+    Column("loaded_at", DateTime(timezone=False), server_default=text("NOW()"), nullable=False),
 )
+
+
+def _bulk_upsert_statement(rows: list[dict[str, Any]]):
+    """Build one ``INSERT ... ON CONFLICT DO UPDATE`` for all rows (PostgreSQL)."""
+    fr = FINANCIAL_RECORDS
+    insert_stmt = insert(fr).values(rows)
+    return insert_stmt.on_conflict_do_update(
+        index_elements=[fr.c.transaction_id],
+        set_={
+            fr.c.account_id: insert_stmt.excluded.account_id,
+            fr.c.category_id: insert_stmt.excluded.category_id,
+            fr.c.amount: insert_stmt.excluded.amount,
+            fr.c.currency: insert_stmt.excluded.currency,
+            fr.c.transaction_type: insert_stmt.excluded.transaction_type,
+            fr.c.status: insert_stmt.excluded.status,
+            fr.c.description: insert_stmt.excluded.description,
+            fr.c.created_at: insert_stmt.excluded.created_at,
+            fr.c.updated_at: insert_stmt.excluded.updated_at,
+            fr.c.source_updated_at: insert_stmt.excluded.source_updated_at,
+            fr.c.loaded_at: func.now(),
+        },
+    )
 
 
 def _load_validated_chunks(
     engine: Engine,
     pipeline_run_id: str,
 ) -> list[tuple[int, list[dict[str, Any]], datetime]]:
+    from sqlalchemy import text as sql_text
+
     with engine.connect() as conn:
         result = conn.execute(
-            text(
+            sql_text(
                 """
                 SELECT chunk_index, records, source_high_watermark
                 FROM etl_validated
@@ -123,9 +126,13 @@ def _row_to_bind(row: dict[str, Any]) -> dict[str, Any]:
 
 @with_db_retry
 def _upsert_chunk(engine: Engine, rows: list[dict[str, Any]]) -> None:
+    """One round-trip per chunk: multi-row upsert (not one statement per row)."""
+    if not rows:
+        return
+    bound = [_row_to_bind(r) for r in rows]
+    stmt = _bulk_upsert_statement(bound)
     with engine.begin() as conn:
-        for row in rows:
-            conn.execute(_UPSERT_SQL, _row_to_bind(row))
+        conn.execute(stmt)
 
 
 def _upsert_chunk_guarded(engine: Engine, rows: list[dict[str, Any]]) -> None:
