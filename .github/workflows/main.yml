@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  structure-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate critical project structure
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          required_paths = [
+              "dags/financial_etl_dag.py",
+              "dags/financial_etl_smoke_dag.py",
+              "docker-compose.yaml",
+              "docker/sql/01_schema.sql",
+              "pipeline/application/services.py",
+              "pipeline/adapters/airflow/tasks.py",
+              "pipeline/infrastructure/legacy/etl_workflow.py",
+              "pipeline/infrastructure/persistence/extractor.py",
+              "pipeline/infrastructure/persistence/transformer.py",
+              "pipeline/infrastructure/persistence/loader.py",
+              "pipeline/infrastructure/resilience/checkpoint.py",
+              "pipeline/domain/models/transaction/model.py",
+              "pipeline/domain/models/financial_record/model.py",
+              "pipeline/domain/models/account/model.py",
+              "pipeline/utils/config.py",
+              "pipeline/utils/db.py",
+              "pipeline/utils/exceptions.py",
+              "pipeline/utils/log.py",
+              "pipeline/utils/serialize.py",
+              "tests/test_dag_pipeline_flow.py",
+              "tests/test_services.py",
+          ]
+
+          missing = [p for p in required_paths if not Path(p).exists()]
+          if missing:
+              print("Missing critical files:")
+              for p in missing:
+                  print(f"- {p}")
+              raise SystemExit(1)
+
+          print("Critical structure guard passed.")
+          PY
+
+  pytest:
+    runs-on: ubuntu-latest
+    needs: structure-guard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install test dependencies
+        run: |
+          pip install --upgrade pip
+          pip install \
+            "pydantic>=2,<3" \
+            pydantic-settings \
+            "SQLAlchemy>=2,<3" \
+            psycopg2-binary \
+            polars \
+            tenacity \
+            pybreaker \
+            structlog \
+            psutil \
+            pytest \
+            pytest-mock
+
+      - name: Run pytest
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        run: pytest tests/
+
+  validate-azure-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install YAML parser
+        run: pip install pyyaml
+
+      - name: Verificar que azure-pipelines.yml existe y tiene sintaxis YAML válida
+        run: |
+          python -c "
+          import yaml, sys
+          with open('azure-pipelines.yml') as f:
+              yaml.safe_load(f)
+          print('azure-pipelines.yml es YAML válido')
+          "
+
+  dags-on-pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs: pytest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resumen de DAGs en este PR
+        run: |
+          echo "## DAGs del commit en este PR" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Los archivos bajo `dags/` son los que Airflow cargaría desde el repo en este SHA.' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          ls -la dags/ >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Subir carpeta dags como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dags-${{ github.event.pull_request.number }}-${{ github.sha }}
+          path: dags/
+          if-no-files-found: error
