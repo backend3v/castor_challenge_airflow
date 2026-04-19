@@ -71,7 +71,6 @@ jobs:
   dags-on-pr:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    needs: pytest
     steps:
       - uses: actions/checkout@v4
 
