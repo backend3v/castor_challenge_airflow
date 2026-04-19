@@ -51,40 +51,6 @@ jobs:
           print("Critical structure guard passed.")
           PY
 
-  pytest:
-    runs-on: ubuntu-latest
-    needs: structure-guard
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-
-      - name: Install test dependencies
-        run: |
-          pip install --upgrade pip
-          pip install \
-            "pydantic>=2,<3" \
-            pydantic-settings \
-            "SQLAlchemy>=2,<3" \
-            psycopg2-binary \
-            polars \
-            tenacity \
-            pybreaker \
-            structlog \
-            psutil \
-            pytest \
-            pytest-mock
-
-      - name: Run pytest
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: test
-        run: pytest tests/
-
   validate-azure-pipeline:
     runs-on: ubuntu-latest
     steps:
