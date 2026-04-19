@@ -29,36 +29,40 @@ DEFAULT_ARGS: dict[str, Any] = {
 def financial_etl_dag() -> None:
     @task(task_id="extract")
     def extract_task() -> dict[str, Any]:
-        from pipeline.extractor import run_extraction
+        from pipeline.adapters.airflow.tasks import extract_task_handler
 
         ctx = get_current_context()
         run_id = str(ctx["run_id"])
-        return run_extraction(run_id)
+        return extract_task_handler(run_id)
 
     @task(task_id="validate")
     def validate_task(extract_meta: dict[str, Any]) -> dict[str, Any]:
-        from pipeline.transformer import run_validation
+        from pipeline.adapters.airflow.tasks import validate_task_handler
 
-        return run_validation(extract_meta["pipeline_run_id"])
+        return validate_task_handler(extract_meta)
 
     @task(task_id="load")
     def load_task(validation_meta: dict[str, Any]) -> dict[str, Any]:
-        from pipeline.loader import run_load
+        from pipeline.adapters.airflow.tasks import load_task_handler
 
-        out = run_load(validation_meta["pipeline_run_id"])
-        out["dlq_count"] = validation_meta.get("dlq_count", 0)
-        return out
+        return load_task_handler(validation_meta)
 
     @task(task_id="finalize")
     def finalize_task(load_meta: dict[str, Any]) -> dict[str, Any]:
-        from pipeline.finalization import run_finalize
+        from pipeline.adapters.airflow.tasks import finalize_task_handler
 
-        return run_finalize(load_meta["pipeline_run_id"], load_meta)
+        return finalize_task_handler(load_meta)
+
+    @task(task_id="report_tables")
+    def report_tables_task(load_meta: dict[str, Any]) -> dict[str, Any]:
+        from pipeline.adapters.airflow.tasks import report_tables_task_handler
+
+        return report_tables_task_handler(load_meta)
 
     ext = extract_task()
     val = validate_task(ext)
     ld = load_task(val)
-    finalize_task(ld)
-
+    rpt = report_tables_task(ld)
+    finalize_task(rpt)
 
 dag = financial_etl_dag()
