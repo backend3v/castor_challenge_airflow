@@ -12,7 +12,7 @@ BEGIN;
 -- -------------------------------------------------------------
 -- categories — 10 categorías fijas (catálogo pequeño)
 -- -------------------------------------------------------------
-INSERT INTO categories (name, description) VALUES
+INSERT INTO public.categories (name, description) VALUES
     ('salary',        'Ingreso por nómina'),
     ('rent',          'Pago de arriendo o hipoteca'),
     ('utilities',     'Servicios públicos'),
@@ -30,7 +30,7 @@ ON CONFLICT (name) DO NOTHING;
 -- chr(65 + ...) genera letras A-Z para nombres sintéticos
 -- random() * N genera valores numéricos distribuidos
 -- -------------------------------------------------------------
-INSERT INTO accounts (account_name, account_type, owner_name, currency, balance, is_active, created_at, updated_at)
+INSERT INTO public.accounts (account_name, account_type, owner_name, currency, balance, is_active, created_at, updated_at)
 SELECT
     'Account-' || LPAD(seq::TEXT, 5, '0'),
     (ARRAY['savings', 'checking', 'investment'])[1 + (seq % 3)],
@@ -50,7 +50,7 @@ FROM generate_series(1, 1000) AS seq;
 -- Técnica: JOIN de generate_series con subquery de account_ids
 -- para asignar FK válidas sin loops ni cursores
 -- -------------------------------------------------------------
-INSERT INTO transactions (
+INSERT INTO public.transactions (
     account_id, category_id, amount, currency,
     transaction_type, status, description, created_at, updated_at
 )
@@ -78,8 +78,8 @@ FROM
     generate_series(1, 500000) AS seq
     -- Asignar account_id válida: modulo sobre total de cuentas
     JOIN (
-        SELECT account_id, ROW_NUMBER() OVER () AS rn FROM accounts
-    ) a ON a.rn = 1 + (seq % (SELECT COUNT(*) FROM accounts));
+        SELECT account_id, ROW_NUMBER() OVER () AS rn FROM public.accounts
+    ) a ON a.rn = 1 + (seq % (SELECT COUNT(*) FROM public.accounts));
 
 COMMIT;
 
@@ -87,8 +87,8 @@ COMMIT;
 -- Verificación post-seed
 -- -------------------------------------------------------------
 SELECT
-    'accounts'     AS tabla, COUNT(*) AS total FROM accounts
+    'accounts'     AS tabla, COUNT(*) AS total FROM public.accounts
 UNION ALL SELECT
-    'categories',            COUNT(*)          FROM categories
+    'categories',            COUNT(*)          FROM public.categories
 UNION ALL SELECT
-    'transactions',          COUNT(*)          FROM transactions;
+    'transactions',          COUNT(*)          FROM public.transactions;

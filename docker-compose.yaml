@@ -1,21 +1,27 @@
-version: "3.8"
-
 x-airflow-common: &airflow-common
   image: apache/airflow:2.9.1
+  user: "50000:0"
   env_file:
     - .env
   environment:
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${TARGET_POSTGRES_DB}?options=-csearch_path%3Ddag,public
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
+    _PIP_ADDITIONAL_REQUIREMENTS: "pydantic>=2,<3 pydantic-settings psycopg2-binary polars tenacity pybreaker structlog psutil"
     PYTHONPATH: /opt/airflow
+    SOURCE_DB_HOST: postgres
+    SOURCE_DB_PORT: "5432"
+    SOURCE_POSTGRES_DB: ${POSTGRES_DB}
+    TARGET_DB_HOST: pgbouncer
+    TARGET_DB_PORT: "5432"
+    TARGET_POSTGRES_DB: ${TARGET_POSTGRES_DB}
   volumes:
     - ./dags:/opt/airflow/dags
     - ./pipeline:/opt/airflow/pipeline
     - ./tests:/opt/airflow/tests
-    - /home/ximi/proyectos/volumes/castor_challenge/airflow:/opt/airflow/logs
+    - airflow_logs:/opt/airflow/logs
   depends_on:
     postgres:
       condition: service_healthy
@@ -38,7 +44,7 @@ services:
       retries: 5
       start_period: 10s
     volumes:
-      - /home/ximi/proyectos/volumes/castor_challenge/postgres:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
       - ./docker/sql:/docker-entrypoint-initdb.d
     networks:
       - etl-net
@@ -50,7 +56,7 @@ services:
       DB_PORT: 5432
       DB_USER: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
-      DB_NAME: ${POSTGRES_DB}
+      DB_NAME: ${TARGET_POSTGRES_DB}
       POOL_MODE: transaction
       MAX_CLIENT_CONN: 200
       DEFAULT_POOL_SIZE: 20
@@ -94,3 +100,7 @@ services:
 networks:
   etl-net:
     driver: bridge
+
+volumes:
+  postgres_data:
+  airflow_logs:

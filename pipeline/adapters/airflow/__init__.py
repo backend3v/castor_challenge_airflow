@@ -1,0 +1,1 @@
+"""Airflow adapter functions."""

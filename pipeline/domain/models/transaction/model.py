@@ -9,7 +9,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from pipeline.models.common import CurrencyCode, Money, normalize_iso_currency
+from pipeline.domain.models.common import CurrencyCode, Money, normalize_iso_currency
 
 TransactionType: TypeAlias = Literal["debit", "credit"]
 TransactionStatus: TypeAlias = Literal["pending", "completed", "failed"]
@@ -18,7 +18,7 @@ TransactionStatus: TypeAlias = Literal["pending", "completed", "failed"]
 class Transaction(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    transaction_id: UUID
+    transaction_id: Annotated[int, Field(ge=1)]
     account_id: UUID
     category_id: Annotated[int, Field(ge=1)]
     amount: Money

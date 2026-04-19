@@ -1,0 +1,91 @@
+# Azure Pipelines — declarative CI (syntax compatible with Azure DevOps)
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+
+pr:
+  branches:
+    include:
+      - main
+      - develop
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  PYTHON_VERSION: "3.11"
+  DEPLOY_PATH: "/opt/castor_challenge_airflow"
+  DEPLOY_COMPOSE_FILE: "docker-compose.yaml"
+
+stages:
+  - stage: Test
+    displayName: Test and validate
+    jobs:
+      - job: Pytest
+        displayName: Run test suite
+        steps:
+          - checkout: self
+            displayName: Checkout repository
+
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: "$(PYTHON_VERSION)"
+            displayName: Use Python $(PYTHON_VERSION)
+
+          - script: |
+              python -m pip install --upgrade pip
+              pip install \
+                "pydantic>=2,<3" \
+                pydantic-settings \
+                "SQLAlchemy>=2,<3" \
+                psycopg2-binary \
+                polars \
+                tenacity \
+                pybreaker \
+                structlog \
+                psutil \
+                pytest \
+                pytest-mock
+            displayName: Install test dependencies
+
+          - script: |
+              export POSTGRES_USER=test
+              export POSTGRES_PASSWORD=test
+              export POSTGRES_DB=test
+              pytest tests/
+            displayName: Run pytest
+
+  - stage: Deploy
+    displayName: Deploy to environment
+    dependsOn: Test
+    condition: and(succeeded(), in(variables['Build.SourceBranch'], 'refs/heads/main', 'refs/heads/develop'))
+    jobs:
+      - job: DeployJob
+        displayName: Sync repo and restart stack
+        steps:
+          - checkout: self
+            displayName: Checkout repository
+
+          - script: |
+              set -euo pipefail
+              if [ -z "${DEPLOY_HOST:-}" ] || [ -z "${DEPLOY_USER:-}" ] || [ -z "${DEPLOY_SSH_KEY_B64:-}" ]; then
+                echo "Missing deploy secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY_B64"
+                exit 1
+              fi
+
+              mkdir -p ~/.ssh
+              echo "$DEPLOY_SSH_KEY_B64" | base64 -d > ~/.ssh/id_rsa
+              chmod 600 ~/.ssh/id_rsa
+              ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+              ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p $(DEPLOY_PATH)"
+              rsync -az --delete --exclude '.git' --exclude '.cursor' ./ "$DEPLOY_USER@$DEPLOY_HOST:$(DEPLOY_PATH)/"
+
+              ssh "$DEPLOY_USER@$DEPLOY_HOST" "cd $(DEPLOY_PATH) && docker compose -f $(DEPLOY_COMPOSE_FILE) up -d --build"
+            displayName: Deploy updated code to target host
+            env:
+              DEPLOY_HOST: $(DEPLOY_HOST)
+              DEPLOY_USER: $(DEPLOY_USER)
+              DEPLOY_SSH_KEY_B64: $(DEPLOY_SSH_KEY_B64)

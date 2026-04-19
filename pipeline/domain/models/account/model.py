@@ -9,7 +9,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from pipeline.models.common import CurrencyCode, Money, normalize_iso_currency
+from pipeline.domain.models.common import CurrencyCode, Money, normalize_iso_currency
 
 AccountType: TypeAlias = Literal["savings", "checking", "investment"]
 

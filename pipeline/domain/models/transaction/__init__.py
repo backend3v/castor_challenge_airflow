@@ -1,6 +1,6 @@
 """Transaction entity."""
 
-from pipeline.models.transaction.model import (
+from pipeline.domain.models.transaction.model import (
     Transaction,
     TransactionStatus,
     TransactionType,
